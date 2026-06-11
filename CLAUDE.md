@@ -13,7 +13,7 @@ Motivation: vLLM lacks native INT8 KV-cache support (see vLLM issues #33480, RFC
 
 ## Target Environment
 
-- **Hardware:** NCSA Delta cluster — A100-40GB or A40, Slurm-scheduled
+- **Hardware:** iCRN, A100-80GB
 - **Interactive GPU:** `srun --partition=gpuA100x4 --gres=gpu:1 ...`
 - **Python env:** `uv venv`, PyTorch matching cluster CUDA driver, pinned vLLM version
 - **Fallback:** RunPod 4090 for kernel development; A100 for final benchmarks only

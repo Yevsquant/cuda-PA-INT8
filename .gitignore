@@ -1,1 +1,22 @@
 impl_instruction.md
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# build artifacts (CUDA extensions)
+build/
+*.so
+*.o
+
+# env / caches
+.hf_cache/
+*.lock
+
+# benchmark scratch outputs
+benchmarks/out/
+report/*.pdf
+report/*.log

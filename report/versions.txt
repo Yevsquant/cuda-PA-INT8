@@ -1,0 +1,15 @@
+flashinfer-cubin==0.6.6
+flashinfer-python==0.6.6
+numpy==2.2.6
+torch==2.10.0+cu128
+torch_c_dlpack_ext==0.1.5
+torchaudio==2.10.0+cu128
+torchvision==0.25.0+cu128
+transformers==5.11.0
+vllm==0.19.1
+# environment snapshot
+host        : jupyter-runying2
+gpu         : NVIDIA A100-SXM4-80GB
+driver      : 570.211.01
+nvcc        : Build cuda_12.8.r12.8/compiler.35583870_0
+python      : Python 3.12.13
