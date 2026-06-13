@@ -72,13 +72,21 @@ def test_reference_matches_dense(clen, num_heads, num_kv_heads, num_seqs):
     torch.testing.assert_close(ref, dense, atol=1e-5, rtol=1e-5)
 
 
+def _variant_names():
+    from cuda_ext import VARIANTS
+    return list(VARIANTS)
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("variant", _variant_names() if torch.cuda.is_available() else [])
 @pytest.mark.parametrize("clen", CONTEXT_LENS)
 @pytest.mark.parametrize("num_heads,num_kv_heads", GQA)
 @pytest.mark.parametrize("num_seqs", NUM_SEQS)
-def test_cuda_matches_reference(clen, num_heads, num_kv_heads, num_seqs):
-    """The naive CUDA kernel must match the reference within fp16 tolerance."""
-    from cuda_ext import paged_decode_attention  # JIT-compiles on first call
+def test_cuda_matches_reference(variant, clen, num_heads, num_kv_heads, num_seqs):
+    """Every CUDA variant must match the reference within fp16 tolerance."""
+    from cuda_ext import VARIANTS  # JIT-compiles on first call
+
+    paged_decode_attention = VARIANTS[variant]
 
     torch.manual_seed(0)
     device = "cuda"
@@ -94,6 +102,49 @@ def test_cuda_matches_reference(clen, num_heads, num_kv_heads, num_seqs):
     )
 
     # Reference in fp32 over the exact fp16-rounded cache values.
+    ref = paged_decode_attention_reference(
+        q.float(), k_cache.float(), v_cache.float(), block_table, lens, block_size=BLOCK_SIZE
+    )
+
+    out = torch.empty_like(q)
+    paged_decode_attention(
+        out, q, k_cache, v_cache, block_table, lens, scale, BLOCK_SIZE
+    )
+
+    torch.testing.assert_close(out.float(), ref, atol=2e-2, rtol=2e-2)
+
+
+# Contexts that cross split-K partition boundaries (PARTITION_SIZE=512): exactly
+# on a boundary, just over it, and spanning several partitions. The clen<=500
+# grid above only ever yields num_splits=1, so the multi-split merge is untested
+# without these.
+LONG_CONTEXT_LENS = [512, 513, 1024, 2000, 4096]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("variant", _variant_names() if torch.cuda.is_available() else [])
+@pytest.mark.parametrize("clen", LONG_CONTEXT_LENS)
+@pytest.mark.parametrize("num_heads,num_kv_heads", [(8, 8), (8, 2)])
+def test_cuda_matches_reference_long(variant, clen, num_heads, num_kv_heads):
+    """Long contexts that exercise split-K's multi-partition merge path."""
+    from cuda_ext import VARIANTS
+
+    paged_decode_attention = VARIANTS[variant]
+
+    torch.manual_seed(0)
+    device = "cuda"
+    num_seqs = 2
+    lens = _make_lens(clen, num_seqs, device)
+    max_len = int(lens.max())
+    scale = 1.0 / math.sqrt(HEAD_DIM)
+
+    q = torch.randn(num_seqs, num_heads, HEAD_DIM, dtype=torch.float16, device=device)
+    k, v = _rand_kv(num_seqs, max_len, num_kv_heads, torch.float16, device)
+
+    k_cache, v_cache, block_table = build_paged_kv_cache(
+        k, v, lens, block_size=BLOCK_SIZE, x=X
+    )
+
     ref = paged_decode_attention_reference(
         q.float(), k_cache.float(), v_cache.float(), block_table, lens, block_size=BLOCK_SIZE
     )
