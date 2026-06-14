@@ -22,9 +22,11 @@ import torch
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "tests"))
 
-from cuda_ext import VARIANTS  # noqa: E402
+from cuda_ext import VARIANTS, VARIANTS_INT8  # noqa: E402
 from paged_decode_attn import (  # noqa: E402
     build_paged_kv_cache,
+    build_paged_kv_cache_int8,
+    dequantize_kv,
     paged_decode_attention_reference,
 )
 
@@ -35,6 +37,7 @@ PEAK_BW = 1555.0  # A100-80GB HBM2e, GB/s
 VLLM_PARTITION = 512  # vLLM v2 partition size
 
 VARIANT_ORDER = ["naive", "vec", "online", "warp", "splitk"]
+INT8_ORDER = ["warp_int8", "splitk_int8"]
 
 
 def make_inputs(batch, ctx, num_heads, num_kv_heads, device="cuda"):
@@ -46,8 +49,15 @@ def make_inputs(batch, ctx, num_heads, num_kv_heads, device="cuda"):
     k_cache, v_cache, block_table = build_paged_kv_cache(
         k, v, lens, block_size=BLOCK_SIZE, x=X
     )
+    # INT8 per-token cache built on the same K/V (shares nothing with the fp16
+    # block_table, but uses the same shuffle logic so the gather path matches).
+    kc8, vc8, ks8, vs8, bt8 = build_paged_kv_cache_int8(
+        k, v, lens, block_size=BLOCK_SIZE, x=X, mode="per_token"
+    )
     return dict(q=q, k=k, v=v, lens=lens, k_cache=k_cache, v_cache=v_cache,
-                block_table=block_table)
+                block_table=block_table,
+                k_cache8=kc8, v_cache8=vc8, k_scales8=ks8, v_scales8=vs8,
+                block_table8=bt8)
 
 
 def time_call(fn, iters=50, warmup=10):
@@ -74,6 +84,15 @@ def make_variant_call(fn, inp, scale):
     def run():
         fn(out, inp["q"], inp["k_cache"], inp["v_cache"], inp["block_table"],
            inp["lens"], scale, BLOCK_SIZE)
+    return run, out
+
+
+def make_variant_int8_call(fn, inp, scale):
+    out = torch.empty_like(inp["q"])
+
+    def run():
+        fn(out, inp["q"], inp["k_cache8"], inp["v_cache8"], inp["k_scales8"],
+           inp["v_scales8"], inp["block_table8"], inp["lens"], scale, BLOCK_SIZE)
     return run, out
 
 
@@ -126,10 +145,21 @@ def make_sdpa_call(inp, scale, num_heads, num_kv_heads):
     return run, lambda: out.squeeze(2)
 
 
-def bytes_moved(batch, ctx, num_kv_heads):
-    # K + V read once each, fp16 (2 B). This is the DRAM traffic the kernel is
-    # bound on; Q/out are negligible.
-    return batch * ctx * num_kv_heads * HEAD_DIM * 2 * 2
+def bytes_moved(batch, ctx, num_kv_heads, bytes_per_elem=2):
+    # K + V read once each. This is the DRAM traffic the kernel is bound on;
+    # Q/out are negligible. INT8 variants move half the bytes (1 B/elem) plus a
+    # negligible per-token scale stream, so they're passed bytes_per_elem=1.
+    return batch * ctx * num_kv_heads * HEAD_DIM * 2 * bytes_per_elem
+
+
+def kv_cache_bytes(batch, ctx, num_kv_heads, bytes_per_elem):
+    """Resident KV-cache size (K+V) in bytes for the memory-halving column.
+    INT8 adds one fp32 scale per (token, kv_head) for K and V."""
+    elems = batch * ctx * num_kv_heads * HEAD_DIM * 2
+    nbytes = elems * bytes_per_elem
+    if bytes_per_elem == 1:  # int8: + per-token scales (fp32), K and V
+        nbytes += batch * ctx * num_kv_heads * 2 * 4
+    return nbytes
 
 
 def reference_out(inp, scale):
@@ -143,8 +173,9 @@ def run_config(batch, ctx, num_heads, num_kv_heads, iters, warmup):
     inp = make_inputs(batch, ctx, num_heads, num_kv_heads)
     ref = reference_out(inp, scale)
     nbytes = bytes_moved(batch, ctx, num_kv_heads)
+    kv_fp16_bytes = kv_cache_bytes(batch, ctx, num_kv_heads, 2)
 
-    rows = {}  # name -> dict(us, gbps, ok)
+    rows = {}  # name -> dict(us, gbps, ok, [kv_mb, mem_pct, rel_err])
 
     def record(name, run, get_out):
         run()
@@ -153,11 +184,35 @@ def run_config(batch, ctx, num_heads, num_kv_heads, iters, warmup):
         ok = torch.allclose(out, ref, atol=2e-2, rtol=2e-2)
         us = time_call(run, iters=iters, warmup=warmup)
         gbps = nbytes / (us * 1e-6) / 1e9
-        rows[name] = dict(us=us, gbps=gbps, ok=ok)
+        rows[name] = dict(us=us, gbps=gbps, ok=ok,
+                          kv_mb=kv_fp16_bytes / 1e6, mem_pct=100.0)
 
     for name in VARIANT_ORDER:
         run, out = make_variant_call(VARIANTS[name], inp, scale)
         record(name, run, lambda out=out: out)
+
+    # INT8 variants: half the DRAM bytes, KV-memory ~50%, plus rel-err vs the
+    # FP16 'warp' output (the closest-structure fp16 kernel).
+    fp16_ref_out = None
+    if "warp" in rows:
+        r, o = make_variant_call(VARIANTS["warp"], inp, scale)
+        r(); torch.cuda.synchronize(); fp16_ref_out = o.float().clone()
+    nbytes8 = bytes_moved(batch, ctx, num_kv_heads, bytes_per_elem=1)
+    kv_int8_bytes = kv_cache_bytes(batch, ctx, num_kv_heads, 1)
+    for name in INT8_ORDER:
+        run, out = make_variant_int8_call(VARIANTS_INT8[name], inp, scale)
+        run(); torch.cuda.synchronize()
+        ok = torch.allclose(out.float(), ref, atol=2e-2, rtol=2e-2)
+        us = time_call(run, iters=iters, warmup=warmup)
+        gbps = nbytes8 / (us * 1e-6) / 1e9
+        rel = None
+        if fp16_ref_out is not None:
+            diff = (out.float() - fp16_ref_out).abs()
+            rel = (diff / fp16_ref_out.abs().clamp_min(1e-3)).mean().item()
+        rows[name] = dict(us=us, gbps=gbps, ok=ok,
+                          kv_mb=kv_int8_bytes / 1e6,
+                          mem_pct=100.0 * kv_int8_bytes / kv_fp16_bytes,
+                          rel_err=rel)
 
     try:
         run, out = make_vllm_v1_call(inp, scale, num_kv_heads, ctx)
@@ -185,13 +240,13 @@ def fmt_table(batch, ctx, num_heads, num_kv_heads, rows):
     lines = []
     lines.append(f"#### batch={batch}, ctx={ctx}, heads={num_heads}/{num_kv_heads} (GQA {num_heads//num_kv_heads}x)")
     lines.append("")
-    lines.append("| variant | µs | GB/s | % peak BW | % vLLM v1 | % vLLM v2 | correct |")
-    lines.append("|---|---:|---:|---:|---:|---:|:--:|")
-    order = VARIANT_ORDER + ["vllm_v1", "vllm_v2", "sdpa"]
+    lines.append("| variant | µs | GB/s | % peak BW | % vLLM v1 | % vLLM v2 | KV MB | % KV mem | rel-err vs fp16 | correct |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|:--:|")
+    order = VARIANT_ORDER + INT8_ORDER + ["vllm_v1", "vllm_v2", "sdpa"]
     for name in order:
         r = rows.get(name, {})
         if "err" in r:
-            lines.append(f"| {name} | — | — | — | — | — | err: {r['err']} |")
+            lines.append(f"| {name} | — | — | — | — | — | — | — | — | err: {r['err']} |")
             continue
         if "us" not in r:
             continue
@@ -199,8 +254,12 @@ def fmt_table(batch, ctx, num_heads, num_kv_heads, rows):
         pkt = 100 * gbps / PEAK_BW
         pv1 = f"{100*v1/us:.0f}%" if v1 else "—"
         pv2 = f"{100*v2/us:.0f}%" if v2 else "—"
+        kv_mb = f"{r['kv_mb']:.1f}" if "kv_mb" in r else "—"
+        mem_pct = f"{r['mem_pct']:.0f}%" if "mem_pct" in r else "—"
+        rerr = r.get("rel_err")
+        rerr_s = f"{rerr:.4f}" if rerr is not None else "—"
         ok = "✓" if r.get("ok") else "✗"
-        lines.append(f"| {name} | {us:.1f} | {gbps:.0f} | {pkt:.0f}% | {pv1} | {pv2} | {ok} |")
+        lines.append(f"| {name} | {us:.1f} | {gbps:.0f} | {pkt:.0f}% | {pv1} | {pv2} | {kv_mb} | {mem_pct} | {rerr_s} | {ok} |")
     lines.append("")
     return "\n".join(lines)
 

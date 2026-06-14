@@ -28,6 +28,20 @@ void paged_decode_attn_splitk(
     torch::Tensor block_table, torch::Tensor context_lens,
     double scale, int64_t block_size);
 
+void paged_decode_attn_warp_int8(
+    torch::Tensor out, torch::Tensor q,
+    torch::Tensor k_cache, torch::Tensor v_cache,
+    torch::Tensor k_scales, torch::Tensor v_scales,
+    torch::Tensor block_table, torch::Tensor context_lens,
+    double scale, int64_t block_size);
+
+void paged_decode_attn_splitk_int8(
+    torch::Tensor out, torch::Tensor q,
+    torch::Tensor k_cache, torch::Tensor v_cache,
+    torch::Tensor k_scales, torch::Tensor v_scales,
+    torch::Tensor block_table, torch::Tensor context_lens,
+    double scale, int64_t block_size);
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("paged_decode_attn_vec", &paged_decode_attn_vec,
           "Stage 1: vectorized-load paged decode (FP16)");
@@ -37,4 +51,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           "Stage 3: warp-reduction online paged decode (FP16)");
     m.def("paged_decode_attn_splitk", &paged_decode_attn_splitk,
           "Stage 4: Flash-Decoding split-K paged decode (FP16)");
+    m.def("paged_decode_attn_warp_int8", &paged_decode_attn_warp_int8,
+          "Stage 5: warp-reduction paged decode (INT8 KV cache)");
+    m.def("paged_decode_attn_splitk_int8", &paged_decode_attn_splitk_int8,
+          "Stage 6: Flash-Decoding split-K paged decode (INT8 KV cache)");
 }

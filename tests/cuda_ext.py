@@ -23,12 +23,20 @@ _OPT_SOURCES = [
     "paged_attention_v2_online.cu",
     "paged_attention_v3_warp.cu",
     "paged_attention_v4_splitk.cu",
+    "paged_attention_v5_warp_int8.cu",
+    "paged_attention_v6_splitk_int8.cu",
 ]
 _OPT_OPS = {
     "vec": "paged_decode_attn_vec",
     "online": "paged_decode_attn_online",
     "warp": "paged_decode_attn_warp",
     "splitk": "paged_decode_attn_splitk",
+}
+# INT8 KV-cache variants. Separate registry because the call signature carries
+# the extra k_scales / v_scales buffers.
+_OPT_OPS_INT8 = {
+    "warp_int8": "paged_decode_attn_warp_int8",
+    "splitk_int8": "paged_decode_attn_splitk_int8",
 }
 
 
@@ -74,3 +82,19 @@ def _make_variant(op_name):
 # Registry of all callable variants (name -> fn with the naive signature).
 VARIANTS = {"naive": paged_decode_attention}
 VARIANTS.update({name: _make_variant(op) for name, op in _OPT_OPS.items()})
+
+
+def _make_variant_int8(op_name):
+    def run(out, q, k_cache, v_cache, k_scales, v_scales, block_table,
+            context_lens, scale, block_size=16):
+        getattr(_opt_ext(), op_name)(
+            out, q, k_cache, v_cache, k_scales, v_scales, block_table,
+            context_lens, scale, block_size
+        )
+        return out
+    run.__name__ = op_name
+    return run
+
+
+# Registry of INT8 KV-cache variants (name -> fn carrying k_scales/v_scales).
+VARIANTS_INT8 = {name: _make_variant_int8(op) for name, op in _OPT_OPS_INT8.items()}

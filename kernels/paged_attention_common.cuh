@@ -114,4 +114,27 @@ __device__ inline float qk_dot_vectorized(
     return dot;
 }
 
+// Raw int8 dot(q, k_token_int8) for one token, reading K vectorized along x.
+//   Same loop shape as qk_dot_vectorized, but k_base is int8 and x == 8 → one
+//   64-bit load (8 int8) per (outer, token). Returns the *un-scaled* dot; the
+//   caller multiplies by the per-token scale s_k (scale is constant across
+//   head_dim, so dot(q, k_int8·s_k) = s_k · dot(q, k_int8)).
+__device__ inline float qk_dot_int8(
+    const float* __restrict__ q_sh, const signed char* __restrict__ k_base,
+    int off, int hd_x, int block_size, int x)
+{
+    float dot = 0.f;
+    for (int outer = 0; outer < hd_x; ++outer) {
+        // x == 8 int8 = 8 bytes = one 64-bit load.
+        const int2 raw =
+            *reinterpret_cast<const int2*>(&k_base[(outer * block_size + off) * x]);
+        const signed char* c = reinterpret_cast<const signed char*>(&raw);
+        #pragma unroll
+        for (int j = 0; j < 8; ++j) {  // x == 8
+            dot += q_sh[outer * x + j] * static_cast<float>(c[j]);
+        }
+    }
+    return dot;
+}
+
 } // namespace pa
