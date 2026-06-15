@@ -119,6 +119,8 @@ void paged_decode_attn_vec(
     TORCH_CHECK(q.scalar_type() == torch::kHalf, "q must be fp16");
     TORCH_CHECK(block_table.scalar_type() == torch::kInt, "block_table must be int32");
     TORCH_CHECK(context_lens.scalar_type() == torch::kInt, "context_lens must be int32");
+    TORCH_CHECK(context_lens.numel() == 0 || context_lens.min().item<int>() >= 1,
+                "context_lens must be >= 1 (empty sequences unsupported)");
     TORCH_CHECK(block_size % 8 == 0, "block_size must be a multiple of 8 for vectorized V");
 
     const int num_seqs = q.size(0);

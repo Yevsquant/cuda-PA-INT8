@@ -162,6 +162,8 @@ void paged_decode_attn_warp_int8(
     TORCH_CHECK(v_scales.scalar_type() == torch::kFloat32, "v_scales must be fp32");
     TORCH_CHECK(block_table.scalar_type() == torch::kInt, "block_table must be int32");
     TORCH_CHECK(context_lens.scalar_type() == torch::kInt, "context_lens must be int32");
+    TORCH_CHECK(context_lens.numel() == 0 || context_lens.min().item<int>() >= 1,
+                "context_lens must be >= 1 (empty sequences unsupported)");
     TORCH_CHECK(block_size % 16 == 0 && TILE % block_size == 0,
                 "block_size must divide TILE and be a multiple of 16");
 

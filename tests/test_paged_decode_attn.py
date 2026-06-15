@@ -304,3 +304,161 @@ def test_int8_precision_metric(variant, clen, num_heads, num_kv_heads):
     # Per-token should be no worse than per-tensor on the mean.
     assert pt_mean <= ptn_mean + 1e-3, (
         f"per-token mean {pt_mean} should be <= per-tensor mean {ptn_mean}")
+
+
+# --- Boundary cases & finite-output guards -----------------------------------
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("variant", _variant_names() if torch.cuda.is_available() else [])
+@pytest.mark.parametrize("clen", [1, 17, 4096])
+def test_outputs_finite(variant, clen):
+    """No NaN/Inf in the output across the variants, including the smallest and
+    largest contexts. The cheap regression net for softmax-denominator bugs."""
+    from cuda_ext import VARIANTS
+
+    paged_decode_attention = VARIANTS[variant]
+    torch.manual_seed(0)
+    device = "cuda"
+    num_heads, num_kv_heads, num_seqs = 8, 2, 2
+    lens = _make_lens(clen, num_seqs, device)
+    max_len = int(lens.max())
+    scale = 1.0 / math.sqrt(HEAD_DIM)
+
+    q = torch.randn(num_seqs, num_heads, HEAD_DIM, dtype=torch.float16, device=device)
+    k, v = _rand_kv(num_seqs, max_len, num_kv_heads, torch.float16, device)
+    k_cache, v_cache, block_table = build_paged_kv_cache(
+        k, v, lens, block_size=BLOCK_SIZE, x=X)
+
+    out = torch.empty_like(q)
+    paged_decode_attention(out, q, k_cache, v_cache, block_table, lens, scale, BLOCK_SIZE)
+    assert torch.isfinite(out).all(), f"{variant} produced non-finite output"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("variant", _variant_names() if torch.cuda.is_available() else [])
+def test_empty_context_rejected(variant):
+    """A context length of 0 has no tokens to attend to — the softmax denominator
+    is 0, so the kernels must reject it rather than silently emit NaN. Decode never
+    produces ctx=0 (a sequence always has >=1 token), so this is a precondition."""
+    from cuda_ext import VARIANTS
+
+    paged_decode_attention = VARIANTS[variant]
+    torch.manual_seed(0)
+    device = "cuda"
+    num_heads, num_kv_heads = 8, 2
+    # One real sequence plus one empty (ctx=0) sequence in the batch.
+    lens = torch.tensor([8, 0], dtype=torch.int32, device=device)
+    scale = 1.0 / math.sqrt(HEAD_DIM)
+
+    q = torch.randn(2, num_heads, HEAD_DIM, dtype=torch.float16, device=device)
+    k, v = _rand_kv(2, 8, num_kv_heads, torch.float16, device)
+    k_cache, v_cache, block_table = build_paged_kv_cache(
+        k, v, torch.tensor([8, 1], dtype=torch.int32, device=device),
+        block_size=BLOCK_SIZE, x=X)
+
+    out = torch.empty_like(q)
+    with pytest.raises(RuntimeError):
+        paged_decode_attention(out, q, k_cache, v_cache, block_table, lens, scale, BLOCK_SIZE)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("variant", _int8_variant_names() if torch.cuda.is_available() else [])
+@pytest.mark.parametrize("clen", [1, 17, 4096])
+def test_int8_outputs_finite(variant, clen):
+    """INT8 kernels must also be NaN/Inf-free across the context range."""
+    from cuda_ext import VARIANTS_INT8
+
+    int8_fn = VARIANTS_INT8[variant]
+    torch.manual_seed(0)
+    device = "cuda"
+    num_heads, num_kv_heads, num_seqs = 8, 2, 2
+    lens = _make_lens(clen, num_seqs, device)
+    max_len = int(lens.max())
+    scale = 1.0 / math.sqrt(HEAD_DIM)
+
+    q = torch.randn(num_seqs, num_heads, HEAD_DIM, dtype=torch.float16, device=device)
+    k, v = _rand_kv(num_seqs, max_len, num_kv_heads, torch.float16, device)
+    kc, vc, ks, vs, bt = build_paged_kv_cache_int8(
+        k, v, lens, block_size=BLOCK_SIZE, x=X, mode="per_token")
+
+    out = torch.empty_like(q)
+    int8_fn(out, q, kc, vc, ks, vs, bt, lens, scale, BLOCK_SIZE)
+    assert torch.isfinite(out).all(), f"{variant} produced non-finite output"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("variant", _int8_variant_names() if torch.cuda.is_available() else [])
+def test_int8_empty_context_rejected(variant):
+    """INT8 kernels reject ctx=0 the same way the FP16 ones do."""
+    from cuda_ext import VARIANTS_INT8
+
+    int8_fn = VARIANTS_INT8[variant]
+    torch.manual_seed(0)
+    device = "cuda"
+    num_heads, num_kv_heads = 8, 2
+    lens = torch.tensor([8, 0], dtype=torch.int32, device=device)
+    scale = 1.0 / math.sqrt(HEAD_DIM)
+
+    q = torch.randn(2, num_heads, HEAD_DIM, dtype=torch.float16, device=device)
+    k, v = _rand_kv(2, 8, num_kv_heads, torch.float16, device)
+    kc, vc, ks, vs, bt = build_paged_kv_cache_int8(
+        k, v, torch.tensor([8, 1], dtype=torch.int32, device=device),
+        block_size=BLOCK_SIZE, x=X, mode="per_token")
+
+    out = torch.empty_like(q)
+    with pytest.raises(RuntimeError):
+        int8_fn(out, q, kc, vc, ks, vs, bt, lens, scale, BLOCK_SIZE)
+
+
+def _cosine(a, b):
+    """Cosine similarity of two flattened tensors (stable near-zero metric)."""
+    a, b = a.reshape(-1), b.reshape(-1)
+    return (a @ b / (a.norm() * b.norm() + 1e-12)).item()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required")
+@pytest.mark.parametrize("variant", _int8_variant_names() if torch.cuda.is_available() else [])
+def test_int8_precision_outlier_distribution(variant):
+    """Stress the quant under heavy-tailed K (a few 'massive activation' channels,
+    as in post-RoPE K) rather than benign N(0,1). Per-token quant should still beat
+    per-tensor — and harder so, since per-tensor's single scale is wrecked by the
+    outlier — and stay close to FP16 by cosine similarity (a stable metric that
+    doesn't blow up on near-zero outputs the way per-element rel-err does)."""
+    from cuda_ext import VARIANTS, VARIANTS_INT8
+
+    fp16_fn = VARIANTS["warp"]
+    int8_fn = VARIANTS_INT8[variant]
+
+    torch.manual_seed(0)
+    device = "cuda"
+    num_heads, num_kv_heads, num_seqs, clen = 8, 2, 2, 500
+    lens = _make_lens(clen, num_seqs, device)
+    max_len = int(lens.max())
+    scale = 1.0 / math.sqrt(HEAD_DIM)
+
+    q = torch.randn(num_seqs, num_heads, HEAD_DIM, dtype=torch.float16, device=device)
+    k, v = _rand_kv(num_seqs, max_len, num_kv_heads, torch.float16, device)
+    # Inject outlier channels into K (a handful of head_dim positions ~20x larger).
+    outlier_ch = torch.tensor([3, 50, 97], device=device)
+    k[:, :, :, outlier_ch] *= 20.0
+
+    k_cache, v_cache, bt = build_paged_kv_cache(k, v, lens, block_size=BLOCK_SIZE, x=X)
+    out_fp16 = torch.empty_like(q)
+    fp16_fn(out_fp16, q, k_cache, v_cache, bt, lens, scale, BLOCK_SIZE)
+    fp16 = out_fp16.float()
+
+    def cos(mode):
+        kc, vc, ks, vs, bt8 = build_paged_kv_cache_int8(
+            k, v, lens, block_size=BLOCK_SIZE, x=X, mode=mode)
+        out = torch.empty_like(q)
+        int8_fn(out, q, kc, vc, ks, vs, bt8, lens, scale, BLOCK_SIZE)
+        return _cosine(out.float(), fp16)
+
+    pt_cos, ptn_cos = cos("per_token"), cos("per_tensor")
+    print(f"\n[{variant} outlier-K] per_token cos={pt_cos:.5f} "
+          f"per_tensor cos={ptn_cos:.5f}")
+    # Per-token tracks FP16 closely even under outliers.
+    assert pt_cos > 0.99, f"per-token cosine too low under outliers: {pt_cos}"
+    # And it is at least as faithful as per-tensor (the ablation point).
+    assert pt_cos >= ptn_cos - 1e-4, (
+        f"per-token cos {pt_cos} should be >= per-tensor cos {ptn_cos}")
