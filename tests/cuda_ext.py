@@ -5,10 +5,19 @@ ninja (torch.utils.cpp_extension.load) and re-exports `paged_decode_attention`.
 """
 
 import os
+import glob
 import functools
 
+# Cap ninja's compile parallelism BEFORE torch is imported. By default
+# cpp_extension launches one nvcc per CPU (24 here); each -O3 compile of the
+# heavy split-K / INT8 kernels needs a few GB, so the parallel spike blows past
+# this JupyterHub pod's 8 GiB cgroup cap and the pod gets OOM-killed mid-build
+# (looks like a "disconnect"). Serializing keeps peak memory well under the cap.
+# Overridable: export MAX_JOBS=N before running.
+os.environ.setdefault("MAX_JOBS", "2")
+
 import torch
-from torch.utils.cpp_extension import load
+from torch.utils.cpp_extension import load, _get_build_directory
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _KERNELS = os.path.join(_REPO_ROOT, "kernels")
@@ -40,8 +49,39 @@ _OPT_OPS_INT8 = {
 }
 
 
+def _compiler_running():
+    """True if any ninja/nvcc compiler process is alive on this machine."""
+    names = {"ninja", "nvcc", "cicc", "ptxas", "cudafe++"}
+    for comm in glob.glob("/proc/[0-9]*/comm"):
+        try:
+            with open(comm) as f:
+                if f.read().strip() in names:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _clear_stale_lock(name):
+    """Remove a leftover cpp_extension baton lock from a killed/crashed build.
+
+    `load` serializes builds with a `lock` file in the build dir: a process
+    holds it while ninja runs. If that process is killed before releasing,
+    the lock lingers and the next `load` blocks forever polling for it. Treat
+    the lock as stale only when no compiler is actually running, so we never
+    yank the baton from a live build. Best-effort — never let this block load.
+    """
+    try:
+        lock = os.path.join(_get_build_directory(name, verbose=False), "lock")
+        if os.path.exists(lock) and not _compiler_running():
+            os.remove(lock)
+    except OSError:
+        pass
+
+
 @functools.lru_cache(maxsize=1)
 def _naive_ext():
+    _clear_stale_lock("paged_attn_naive")
     return load(
         name="paged_attn_naive",
         sources=[_NAIVE_SRC],
@@ -52,6 +92,7 @@ def _naive_ext():
 
 @functools.lru_cache(maxsize=1)
 def _opt_ext():
+    _clear_stale_lock("paged_attn_opt")
     return load(
         name="paged_attn_opt",
         sources=[os.path.join(_KERNELS, s) for s in _OPT_SOURCES],

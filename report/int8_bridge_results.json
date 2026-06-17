@@ -1,0 +1,32 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "max_new": 64,
+  "num_prompts": 5,
+  "mem_ref_len": 2048,
+  "summary": {
+    "fp16": {
+      "ttft_ms": 28.543366119265556,
+      "tpot_ms": 28.967928924849108,
+      "greedy_match": 1.0,
+      "ppl": 1.4435363240312937,
+      "kv_bytes_ref": 58720256,
+      "kv_ratio_vs_fp16": 1.0
+    },
+    "int8_per_token": {
+      "ttft_ms": 36.827296018600464,
+      "tpot_ms": 34.79648511561136,
+      "greedy_match": 0.6625,
+      "ppl": 1.4378903482273837,
+      "kv_bytes_ref": 30277632,
+      "kv_ratio_vs_fp16": 0.515625
+    },
+    "int8_per_tensor": {
+      "ttft_ms": 37.0303587988019,
+      "tpot_ms": 31.526817481905695,
+      "greedy_match": 0.609375,
+      "ppl": 1.4387529978830707,
+      "kv_bytes_ref": 30277632,
+      "kv_ratio_vs_fp16": 0.515625
+    }
+  }
+}
