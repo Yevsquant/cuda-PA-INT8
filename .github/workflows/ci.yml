@@ -1,0 +1,31 @@
+name: ci
+
+# CPU-only CI: runs the pure-torch PagedAttention reference + INT8 quant tests.
+# The CUDA kernel tests are marked skipif(not torch.cuda.is_available()) and are
+# skipped here (they need a GPU runner); CI guards the reference implementation
+# that those kernels are validated against.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cpu-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CPU deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install pytest
+
+      - name: Run CPU reference tests (CUDA tests auto-skip)
+        run: pytest tests/ -m "not slow" -v
