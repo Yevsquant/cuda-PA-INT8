@@ -26,12 +26,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tests"))
 from quant_transforms import hadamard_matrix, smoothquant_factor  # noqa: E402
 
 MODES = ["baseline", "int8_per_tensor", "int8_per_token",
-         "int8_smoothquant", "int8_asym", "int8_hadamard"]
+         "int8_smoothquant", "int8_asym", "int8_hadamard", "fp8_e4m3"]
 
 
 def _fq_per_token(x):
     s = (x.abs().amax(-1, keepdim=True) / 127.0).clamp_min(1e-8)
     return (torch.round(x / s).clamp(-127, 127) * s).to(x.dtype)
+
+
+def _fq_fp8(x):
+    """Per-token E4M3 round-trip (vLLM's only native sub-fp16 KV option). A true
+    float8_e4m3fn cast, scaled so each token's max maps to E4M3's 448 limit."""
+    s = (x.abs().amax(-1, keepdim=True) / 448.0).clamp_min(1e-8)
+    # clamp before the cast: rounding can nudge a scaled value just past 448,
+    # which becomes NaN in e4m3fn (no inf) and poisons the output.
+    q = (x / s).clamp(-448, 448).to(torch.float8_e4m3fn).float()
+    return (q * s).to(x.dtype)
 
 
 def _fq_per_tensor(x):
@@ -68,6 +78,8 @@ def make_hook(orig, mode, alpha, H):
             k, v = _fq_per_tensor(k), _fq_per_tensor(v)
         elif mode == "int8_asym":
             k, v = _fq_asym(k), _fq_per_token(v)   # asym K only; V symmetric
+        elif mode == "fp8_e4m3":
+            k, v = _fq_fp8(k), _fq_fp8(v)
         else:  # per_token / smoothquant / hadamard
             k, v = _fq_per_token(k), _fq_per_token(v)
 
