@@ -1,0 +1,13 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "alpha": 0.85,
+  "n_tokens": 60000,
+  "ppl": {
+    "baseline": 9.342457395493753,
+    "int8_per_tensor": 11.752273344433146,
+    "int8_per_token": 11.069987716228281,
+    "int8_smoothquant": 9.614315063508824,
+    "int8_asym": 10.265525432773504,
+    "int8_hadamard": 9.62464353366516
+  }
+}
