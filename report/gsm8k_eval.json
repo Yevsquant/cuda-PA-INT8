@@ -1,0 +1,11 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "alpha": 0.85,
+  "n": 200,
+  "acc": {
+    "baseline": 0.385,
+    "int8_per_token": 0.305,
+    "int8_smoothquant": 0.375,
+    "int8_asym": 0.375
+  }
+}

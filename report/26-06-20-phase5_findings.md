@@ -54,6 +54,29 @@ fake-quant 路径与 kernel 严格对齐:所有 INT8 mode 的 V 都走 per-token
 | 4 | 非对称 K(唯一 kernel 改动) | +1~2% 开销;SQ 上叠加 +11% |
 | 5 | **端到端 PPL** | **对称 +18.5% → SmoothQuant +2.9%** |
 
-## 剩余可选
+## GSM8K(200 题)下游任务准确率
 
-GSM8K(200 题)子集准确率——生成式、较慢、需注意 Qwen `repetition_penalty=1.1` 贪心陷阱。PPL 已构成完整精度故事,GSM8K 作为补充指标,按需再加。
+PPL 是语言建模指标;再加一个**下游任务**看量化是否真的答错题。同一个 fake-quant 钩子,batched 贪心生成,`repetition_penalty=1.0`(显式关掉 Qwen 的 1.1 贪心陷阱)。
+
+| mode | GSM8K acc | Δ |
+|---|---:|---:|
+| baseline | 0.385 | +0.000 |
+| INT8 per-token(对称) | 0.305 | **−0.080** |
+| INT8 + SmoothQuant | 0.375 | −0.010 |
+| INT8 + 非对称 K | 0.375 | −0.010 |
+
+**与 PPL 完全同向:对称 INT8 KV 掉 8 个点(38.5%→30.5%,相对 −21%),SmoothQuant 收回到 baseline 1 点以内。** 非对称在 GSM8K 上也回到 37.5%。
+
+口径与注意:
+- n=200,准确率标准误约 ±3.4 点。所以「对称 −8 点」≈ 2.3 个标准误,**显著**;而 SmoothQuant/非对称/baseline 三者 1 点内的差异**在噪声内**——结论是这两种方法都把损失收回到「与 baseline 无统计差异」。
+- baseline 38.5% 偏保守:零样本(无 few-shot)+ 模型常不按 `####` 输出 + 「取末位数字」抽取偶尔失手。但所有 mode 用**同一口径**,相对比较有效。
+- 加大 n / 加 few-shot 能抬高绝对值并缩小误差棒,但不会改变「对称掉点、SmoothQuant 收回」的结论。
+
+## 两个端到端指标一致
+
+| 指标 | 对称 INT8 | +SmoothQuant |
+|---|---|---|
+| WikiText-2 PPL | +18.5% | +2.9% |
+| GSM8K acc | −8.0 点 | −1.0 点(噪声内) |
+
+困惑度和下游任务**互相印证**:对称 per-token INT8 KV 有真实可测的退化,SmoothQuant 基本无损地修好。这就是整个项目要给审稿人的答案。
