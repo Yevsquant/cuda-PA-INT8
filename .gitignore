@@ -24,3 +24,4 @@ build/
 benchmarks/out/
 report/*.pdf
 report/*.log
+report/kv_dump.pt
