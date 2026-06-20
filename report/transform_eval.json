@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "model": "Qwen/Qwen2.5-1.5B-Instruct",
+    "n_q_heads": 12,
+    "n_kv_heads": 2,
+    "head_dim": 128,
+    "n_prompts": 6
+  },
+  "alpha": 0.85,
+  "per_layer": {
+    "0": {
+      "baseline": 0.1321321353316307,
+      "smoothquant": 0.03133665056278308,
+      "hadamard": 0.07356859122713406,
+      "smooth+had": 0.03473384461055199
+    },
+    "14": {
+      "baseline": 0.02028338145464659,
+      "smoothquant": 0.02028336903701226,
+      "hadamard": 0.019013131968677047,
+      "smooth+had": 0.01963449517885844
+    },
+    "27": {
+      "baseline": 0.009417398599907756,
+      "smoothquant": 0.00699180318042636,
+      "hadamard": 0.0070302633102983245,
+      "smooth+had": 0.0069444666150957355
+    }
+  }
+}
