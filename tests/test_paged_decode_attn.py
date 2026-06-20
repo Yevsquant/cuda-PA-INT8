@@ -258,10 +258,11 @@ def test_int8_kernel_matches_dequant_reference_long(
 @pytest.mark.parametrize("clen", [128, 500])
 @pytest.mark.parametrize("num_heads,num_kv_heads", [(8, 8), (8, 2)])
 def test_int8_precision_metric(variant, clen, num_heads, num_kv_heads):
-    """Measure (not hard-assert) INT8-vs-FP16 output error. Per-token quant
-    should be no worse than per-tensor (the ablation point), and within a loose
-    sanity bound."""
+    """INT8-vs-FP16 output error via whole-vector metrics (cosine + rel-L2),
+    not the old elementwise relative error whose max blew up near fp16 zeros.
+    Per-token quant should be no worse than per-tensor (the ablation point)."""
     from cuda_ext import VARIANTS, VARIANTS_INT8
+    from quant_metrics import cosine_sim, rel_l2
 
     fp16_fn = VARIANTS["warp"]
     int8_fn = VARIANTS_INT8[variant]
@@ -282,28 +283,31 @@ def test_int8_precision_metric(variant, clen, num_heads, num_kv_heads):
     fp16_fn(out_fp16, q, k_cache, v_cache, block_table, lens, scale, BLOCK_SIZE)
     fp16 = out_fp16.float()
 
-    def rel_err(mode):
+    def metrics(mode):
         kc, vc, ks, vs, bt = build_paged_kv_cache_int8(
             k, v, lens, block_size=BLOCK_SIZE, x=X, mode=mode
         )
         out = torch.empty_like(q)
         int8_fn(out, q, kc, vc, ks, vs, bt, lens, scale, BLOCK_SIZE)
-        diff = (out.float() - fp16).abs()
-        denom = fp16.abs().clamp_min(1e-3)
-        rel = diff / denom
-        return rel.max().item(), rel.mean().item()
+        # Per (seq, head) over head_dim, then aggregate.
+        cos = cosine_sim(out.float(), fp16, dim=-1)
+        rl2 = rel_l2(out.float(), fp16, dim=-1)
+        return cos.mean().item(), cos.min().item(), rl2.mean().item(), rl2.max().item()
 
-    pt_max, pt_mean = rel_err("per_token")
-    ptn_max, ptn_mean = rel_err("per_tensor")
+    pt_cos, pt_cos_min, pt_rl2, pt_rl2_max = metrics("per_token")
+    ptn_cos, ptn_cos_min, ptn_rl2, ptn_rl2_max = metrics("per_tensor")
     print(f"\n[{variant} clen={clen} {num_heads}/{num_kv_heads}] "
-          f"per_token max={pt_max:.4f} mean={pt_mean:.4f} | "
-          f"per_tensor max={ptn_max:.4f} mean={ptn_mean:.4f}")
+          f"per_token cos(mean={pt_cos:.5f} min={pt_cos_min:.5f}) "
+          f"relL2(mean={pt_rl2:.4f} max={pt_rl2_max:.4f}) | "
+          f"per_tensor cos(mean={ptn_cos:.5f}) relL2(mean={ptn_rl2:.4f})")
 
-    # Loose sanity bound on per-token mean relative error.
-    assert pt_mean < 0.2, f"per-token mean rel-err too high: {pt_mean}"
-    # Per-token should be no worse than per-tensor on the mean.
-    assert pt_mean <= ptn_mean + 1e-3, (
-        f"per-token mean {pt_mean} should be <= per-tensor mean {ptn_mean}")
+    # Whole-vector sanity bounds on per-token quant (N(0,1) KV). These are the
+    # honest baseline to tighten once real-distribution numbers land (Phase 1).
+    assert pt_cos > 0.998, f"per-token cosine too low: {pt_cos}"
+    assert pt_rl2 < 0.05, f"per-token rel-L2 too high: {pt_rl2}"
+    # Per-token should be no worse than per-tensor (the ablation).
+    assert pt_rl2 <= ptn_rl2 + 1e-3, (
+        f"per-token rel-L2 {pt_rl2} should be <= per-tensor {ptn_rl2}")
 
 
 # --- Boundary cases & finite-output guards -----------------------------------
