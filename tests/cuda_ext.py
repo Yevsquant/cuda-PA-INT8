@@ -127,10 +127,12 @@ VARIANTS.update({name: _make_variant(op) for name, op in _OPT_OPS.items()})
 
 def _make_variant_int8(op_name):
     def run(out, q, k_cache, v_cache, k_scales, v_scales, block_table,
-            context_lens, scale, block_size=16):
+            context_lens, scale, block_size=16, k_zeros=None):
+        # k_zeros=None => symmetric K (default); a per-token fp32 zero-point
+        # buffer selects the asymmetric-K dequant path in the kernel.
         getattr(_opt_ext(), op_name)(
             out, q, k_cache, v_cache, k_scales, v_scales, block_table,
-            context_lens, scale, block_size
+            context_lens, scale, block_size, k_zeros
         )
         return out
     run.__name__ = op_name

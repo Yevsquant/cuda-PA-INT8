@@ -121,6 +121,24 @@ def quantize_per_tensor(x):
     return q, scale
 
 
+def quantize_per_token_asym(x, dim=-1):
+    """Asymmetric per-token INT8 quant. Maps each token's [min,max] over `dim`
+    onto the full signed-int8 range [-128,127], so skewed (non-zero-centered)
+    distributions don't waste half the range. Returns (int8, fp32 scale, fp32
+    zero-point), with dequant x ≈ scale * (q - zero_point).
+
+      s  = (max - min) / 255
+      z  = round(-128 - min / s)              # qmin - min/s, qmin = -128
+      q  = clamp(round(x/s) + z, -128, 127)
+    """
+    xmax = x.amax(dim=dim, keepdim=True)
+    xmin = x.amin(dim=dim, keepdim=True)
+    scale = ((xmax - xmin) / 255.0).clamp_min(1e-8).to(torch.float32)
+    zero = torch.round(-128.0 - xmin / scale).to(torch.float32)
+    q = torch.round(x.to(torch.float32) / scale + zero).clamp(-128, 127).to(torch.int8)
+    return q, scale.squeeze(dim), zero.squeeze(dim)
+
+
 def build_paged_kv_cache_int8(
     k,             # [num_seqs, max_len, num_kv_heads, head_dim]
     v,             # [num_seqs, max_len, num_kv_heads, head_dim]
@@ -199,17 +217,47 @@ def build_paged_kv_cache_int8(
     return k_cache, v_cache, k_scales, v_scales, block_table
 
 
-def dequantize_kv(k_cache, v_cache, k_scales, v_scales):
+def build_k_cache_int8_asym(k, context_lens, block_table, num_blocks,
+                            block_size=16, x=8):
+    """Asymmetric per-token INT8 K cache (K-only; pair with the symmetric builder
+    for V). Reuses an existing `block_table` scatter so the physical layout
+    matches the symmetric caches built alongside it. Returns
+    (k_cache:int8, k_scales:fp32, k_zeros:fp32)."""
+    num_seqs, _, num_kv_heads, head_dim = k.shape
+    device = k.device
+    k_int8, k_scale, k_zero = quantize_per_token_asym(k, dim=-1)  # [S,L,H] scale/zero
+
+    k_cache = torch.zeros(num_blocks, num_kv_heads, head_dim // x, block_size, x,
+                          dtype=torch.int8, device=device)
+    k_scales = torch.zeros(num_blocks, num_kv_heads, block_size,
+                           dtype=torch.float32, device=device)
+    k_zeros = torch.zeros(num_blocks, num_kv_heads, block_size,
+                          dtype=torch.float32, device=device)
+    for b in range(num_seqs):
+        for t in range(int(context_lens[b])):
+            phys = int(block_table[b, t // block_size])
+            off = t % block_size
+            k_cache[phys, :, :, off, :] = k_int8[b, t].view(num_kv_heads, head_dim // x, x)
+            k_scales[phys, :, off] = k_scale[b, t]
+            k_zeros[phys, :, off] = k_zero[b, t]
+    return k_cache, k_scales, k_zeros
+
+
+def dequantize_kv(k_cache, v_cache, k_scales, v_scales, k_zeros=None):
     """Rebuild fp32 K/V caches from int8 + per-token scales, so the existing
     paged_decode_attention_reference can serve as the dequant oracle.
 
     k_cache: [num_blocks, num_kv_heads, head_dim/x, block_size, x] int8
     v_cache: [num_blocks, num_kv_heads, head_dim, block_size] int8
     scales:  [num_blocks, num_kv_heads, block_size] fp32 (per token-in-block)
+    k_zeros: optional same-shape fp32 zero-points; asym dequant k = s·(q - z).
     """
     # K scale broadcasts over (head_dim/x, x): index [nb, H, 1, bs, 1].
     ks = k_scales[:, :, None, :, None]
-    k_deq = k_cache.to(torch.float32) * ks
+    k_int = k_cache.to(torch.float32)
+    if k_zeros is not None:
+        k_int = k_int - k_zeros[:, :, None, :, None]
+    k_deq = k_int * ks
     # V scale broadcasts over head_dim: index [nb, H, 1, bs].
     vs = v_scales[:, :, None, :]
     v_deq = v_cache.to(torch.float32) * vs

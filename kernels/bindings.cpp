@@ -33,14 +33,16 @@ void paged_decode_attn_warp_int8(
     torch::Tensor k_cache, torch::Tensor v_cache,
     torch::Tensor k_scales, torch::Tensor v_scales,
     torch::Tensor block_table, torch::Tensor context_lens,
-    double scale, int64_t block_size);
+    double scale, int64_t block_size,
+    c10::optional<torch::Tensor> k_zeros);
 
 void paged_decode_attn_splitk_int8(
     torch::Tensor out, torch::Tensor q,
     torch::Tensor k_cache, torch::Tensor v_cache,
     torch::Tensor k_scales, torch::Tensor v_scales,
     torch::Tensor block_table, torch::Tensor context_lens,
-    double scale, int64_t block_size);
+    double scale, int64_t block_size,
+    c10::optional<torch::Tensor> k_zeros);
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("paged_decode_attn_vec", &paged_decode_attn_vec,

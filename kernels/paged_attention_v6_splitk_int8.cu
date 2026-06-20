@@ -32,6 +32,7 @@ __global__ void paged_decode_splitk_int8_partition_kernel(
     const signed char* __restrict__ v_cache,
     const float* __restrict__ k_scales,
     const float* __restrict__ v_scales,
+    const float* __restrict__ k_zeros,   // null => symmetric K; else asym zero-points
     const int* __restrict__ block_table,
     const int* __restrict__ context_lens,
     float scale,
@@ -79,6 +80,15 @@ __global__ void paged_decode_splitk_int8_partition_kernel(
     if (tid == 0) { m_run = -INFINITY; l_run = 0.f; }
     __syncthreads();
 
+    // Asymmetric-K correction (see Stage 5): q_sum = Σ_d q, the same for every
+    // key in this split, so compute once. Only needed when k_zeros is given.
+    float q_sum = 0.f;
+    if (k_zeros != nullptr) {
+        float ql = 0.f;
+        for (int d = tid; d < head_dim; d += nthreads) ql += q_sh[d];
+        q_sum = pa::block_reduce_sum_warp(ql, red);
+    }
+
     const int hd_x = head_dim / x;
     const int* bt = block_table + (long)seq * max_blocks;
 
@@ -93,10 +103,11 @@ __global__ void paged_decode_splitk_int8_partition_kernel(
                 const int off = t % block_size;
                 const signed char* k_base =
                     k_cache + (((long)blk * num_kv_heads + kv_head) * hd_x) * block_size * x;
-                const float s_k =
-                    k_scales[((long)blk * num_kv_heads + kv_head) * block_size + off];
-                const float s =
-                    pa::qk_dot_int8(q_sh, k_base, off, hd_x, block_size, x) * s_k * scale;
+                const long sc_idx = ((long)blk * num_kv_heads + kv_head) * block_size + off;
+                const float s_k = k_scales[sc_idx];
+                float dot = pa::qk_dot_int8(q_sh, k_base, off, hd_x, block_size, x);
+                if (k_zeros != nullptr) dot -= k_zeros[sc_idx] * q_sum;
+                const float s = dot * s_k * scale;
                 scores[i] = s;
                 local_max = fmaxf(local_max, s);
             } else {
@@ -196,7 +207,8 @@ void paged_decode_attn_splitk_int8(
     torch::Tensor k_cache, torch::Tensor v_cache,
     torch::Tensor k_scales, torch::Tensor v_scales,
     torch::Tensor block_table, torch::Tensor context_lens,
-    double scale, int64_t block_size)
+    double scale, int64_t block_size,
+    c10::optional<torch::Tensor> k_zeros)
 {
     TORCH_CHECK(q.is_cuda() && out.is_cuda(), "tensors must be on CUDA");
     TORCH_CHECK(q.scalar_type() == torch::kHalf, "q must be fp16");
@@ -222,6 +234,12 @@ void paged_decode_attn_splitk_int8(
     const int max_ctx = context_lens.max().item<int>();
     const int num_splits = max(1, (max_ctx + PARTITION_SIZE - 1) / PARTITION_SIZE);
 
+    const float* k_zeros_ptr = nullptr;
+    if (k_zeros.has_value()) {
+        TORCH_CHECK(k_zeros->scalar_type() == torch::kFloat32, "k_zeros must be fp32");
+        k_zeros_ptr = k_zeros->data_ptr<float>();
+    }
+
     auto fopts = torch::TensorOptions().dtype(torch::kFloat32).device(q.device());
     auto out_partial = torch::empty({num_seqs, num_heads, num_splits, head_dim}, fopts);
     auto m_partial = torch::empty({num_seqs, num_heads, num_splits}, fopts);
@@ -243,6 +261,7 @@ void paged_decode_attn_splitk_int8(
         reinterpret_cast<const signed char*>(v_cache.data_ptr<int8_t>()),
         k_scales.data_ptr<float>(),
         v_scales.data_ptr<float>(),
+        k_zeros_ptr,
         block_table.data_ptr<int>(),
         context_lens.data_ptr<int>(),
         static_cast<float>(scale),
