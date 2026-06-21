@@ -1,0 +1,11 @@
+{
+  "fp": 9.803,
+  "fp8_all_static": 9.893,
+  "fp8_selective": 9.891,
+  "fp8_all_dynamic": 9.878,
+  "int8_ref": {
+    "plain": 110.378,
+    "rbbqc_selective": 10.494,
+    "all_dynamic": 10.022
+  }
+}
