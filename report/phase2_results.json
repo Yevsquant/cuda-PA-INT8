@@ -1,0 +1,35 @@
+{
+  "sst2": {
+    "fp": 0.9243,
+    "plain": 0.9128,
+    "sq": 0.9117,
+    "rbbqA": 0.9071,
+    "oracle_mp": 0.9174,
+    "_gap_plain": 0.0115,
+    "_gap_sq": 0.0126,
+    "_gap_rbbqA": 0.0172,
+    "_gap_oracle": 0.0069
+  },
+  "mnli": {
+    "fp": 0.8457,
+    "plain": 0.7556,
+    "sq": 0.7789,
+    "rbbqA": 0.7657,
+    "oracle_mp": 0.8421,
+    "_gap_plain": 0.0901,
+    "_gap_sq": 0.0668,
+    "_gap_rbbqA": 0.08,
+    "_gap_oracle": 0.0036
+  },
+  "_meta": {
+    "config": "C1 static per-tensor W8A8",
+    "lam": 0.5
+  },
+  "mnli_rbbqA_lambda_sweep": {
+    "-0.5": 0.7785,
+    "-0.25": 0.7837,
+    "0.0": 0.7789,
+    "0.25": 0.7827,
+    "0.5": 0.7657
+  }
+}
