@@ -1,0 +1,22 @@
+{
+  "fp": 6.329,
+  "n_total": 224,
+  "n_down": 32,
+  "D_by_type": {
+    "attn_in": 3.16,
+    "attn_out": 3.18,
+    "mlp_in": 4.71,
+    "mlp_out": 8.37
+  },
+  "D_top_types": {
+    "mlp_in": 1.0,
+    "mlp_out": 1.0
+  },
+  "plain": 146.191,
+  "fp16_mlp_out": 6.474,
+  "mlp_out_w": 140.757,
+  "mlp_out_a": 6.558,
+  "mlp_out_dyn": 6.493,
+  "D_selective": 6.552,
+  "all_dynamic": 6.38
+}
