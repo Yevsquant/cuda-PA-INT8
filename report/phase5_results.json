@@ -1,0 +1,72 @@
+{
+  "bert": {
+    "fp": 0.8457,
+    "plain": 0.7556,
+    "all_dynamic": 0.8465,
+    "n_total": 72,
+    "sweep": [
+      {
+        "thr": 2.5,
+        "n_dyn": 37,
+        "selective": 0.8455
+      },
+      {
+        "thr": 3.0,
+        "n_dyn": 28,
+        "selective": 0.8435
+      },
+      {
+        "thr": 4.0,
+        "n_dyn": 18,
+        "selective": 0.8386
+      },
+      {
+        "thr": 6.0,
+        "n_dyn": 8,
+        "selective": 0.8395
+      }
+    ],
+    "D_by_type": {
+      "fc1": 4.41,
+      "fc2": 3.97,
+      "k": 1.57,
+      "o_proj": 2.98,
+      "q": 1.57,
+      "v": 1.57
+    }
+  },
+  "qwen": {
+    "fp": 9.803,
+    "plain": 110.378,
+    "all_dynamic": 10.022,
+    "n_total": 196,
+    "sweep": [
+      {
+        "thr": 3.0,
+        "n_dyn": 45,
+        "selective": 10.34
+      },
+      {
+        "thr": 4.0,
+        "n_dyn": 35,
+        "selective": 10.409
+      },
+      {
+        "thr": 5.0,
+        "n_dyn": 32,
+        "selective": 10.565
+      },
+      {
+        "thr": 8.0,
+        "n_dyn": 13,
+        "selective": 12.049
+      }
+    ],
+    "D_by_type": {
+      "attn_in": 2.18,
+      "attn_out": 2.33,
+      "mlp_in": 2.72,
+      "mlp_out": 7.69
+    }
+  }
+}
