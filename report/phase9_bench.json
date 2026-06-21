@@ -1,0 +1,122 @@
+{
+  "T2048": {
+    "per_linear": {
+      "q_proj": {
+        "bf16": 17.29856014251709,
+        "eager_static": 226.0691261291504,
+        "eager_dynamic": 268.46879959106445,
+        "fused_static": 169.6121597290039,
+        "fused_dynamic": 168.46784591674805
+      },
+      "k_proj": {
+        "bf16": 7.042880058288574,
+        "eager_static": 134.87680435180664,
+        "eager_dynamic": 159.2803192138672,
+        "fused_static": 92.56575584411621,
+        "fused_dynamic": 91.13823890686035
+      },
+      "v_proj": {
+        "bf16": 7.059199810028076,
+        "eager_static": 136.22943878173828,
+        "eager_dynamic": 157.66655921936035,
+        "fused_static": 92.12767601013184,
+        "fused_dynamic": 92.44064331054688
+      },
+      "o_proj": {
+        "bf16": 17.255359888076782,
+        "eager_static": 233.90655517578125,
+        "eager_dynamic": 235.96319198608398,
+        "fused_static": 168.5318374633789,
+        "fused_dynamic": 167.6700782775879
+      },
+      "gate_proj": {
+        "bf16": 108.4166431427002,
+        "eager_static": 871.3314819335938,
+        "eager_dynamic": 991.2355041503906,
+        "fused_static": 728.2755279541016,
+        "fused_dynamic": 725.7424163818359
+      },
+      "up_proj": {
+        "bf16": 109.36127662658691,
+        "eager_static": 873.8697814941406,
+        "eager_dynamic": 993.3792114257812,
+        "fused_static": 727.6541137695312,
+        "fused_dynamic": 726.884765625
+      },
+      "down_proj": {
+        "bf16": 96.3475227355957,
+        "eager_static": 1103.9734649658203,
+        "eager_dynamic": 1168.370590209961,
+        "fused_static": 889.7856140136719,
+        "fused_dynamic": 904.3376159667969
+      }
+    },
+    "layer_us": {
+      "bf16": 362.78144240379333,
+      "eager_all_dynamic": 3974.364175796509,
+      "fused_all_static": 2868.5526847839355,
+      "fused_selective": 2883.1046867370605,
+      "fused_all_dynamic": 2876.681604385376
+    }
+  },
+  "T128": {
+    "per_linear": {
+      "q_proj": {
+        "bf16": 6.231679916381836,
+        "eager_static": 108.7606430053711,
+        "eager_dynamic": 132.92351722717285,
+        "fused_static": 89.77439880371094,
+        "fused_dynamic": 88.22624206542969
+      },
+      "k_proj": {
+        "bf16": 5.924479961395264,
+        "eager_static": 109.00704383850098,
+        "eager_dynamic": 132.56223678588867,
+        "fused_static": 89.41311836242676,
+        "fused_dynamic": 87.61664390563965
+      },
+      "v_proj": {
+        "bf16": 5.932160019874573,
+        "eager_static": 108.97088050842285,
+        "eager_dynamic": 132.62271881103516,
+        "fused_static": 89.29471969604492,
+        "fused_dynamic": 87.15807914733887
+      },
+      "o_proj": {
+        "bf16": 6.225919723510742,
+        "eager_static": 108.7558364868164,
+        "eager_dynamic": 132.3782444000244,
+        "fused_static": 89.89631652832031,
+        "fused_dynamic": 88.35871696472168
+      },
+      "gate_proj": {
+        "bf16": 9.455040097236633,
+        "eager_static": 116.1622428894043,
+        "eager_dynamic": 141.87423706054688,
+        "fused_static": 92.22592353820801,
+        "fused_dynamic": 90.65888404846191
+      },
+      "up_proj": {
+        "bf16": 9.436799883842468,
+        "eager_static": 115.52512168884277,
+        "eager_dynamic": 141.75423622131348,
+        "fused_static": 92.10432052612305,
+        "fused_dynamic": 90.04704475402832
+      },
+      "down_proj": {
+        "bf16": 16.002880334854126,
+        "eager_static": 487.9625701904297,
+        "eager_dynamic": 503.54560852050776,
+        "fused_static": 462.4892807006836,
+        "fused_dynamic": 462.1750259399414
+      }
+    },
+    "layer_us": {
+      "bf16": 59.20895993709564,
+      "eager_all_dynamic": 1317.6607990264893,
+      "fused_all_static": 1005.1980781555176,
+      "fused_selective": 1004.8838233947754,
+      "fused_all_dynamic": 994.2406368255615
+    }
+  }
+}
