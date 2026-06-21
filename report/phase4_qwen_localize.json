@@ -1,0 +1,11 @@
+{
+  "fp": 9.803,
+  "plain": 110.378,
+  "fp16_attn_in": 93.628,
+  "fp16_attn_out": 104.68,
+  "fp16_mlp_in": 97.208,
+  "fp16_mlp_out": 10.54,
+  "mlp_out_w": 103.97,
+  "mlp_out_a": 10.698,
+  "mlp_out_dyn": 10.667
+}

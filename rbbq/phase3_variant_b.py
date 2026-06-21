@@ -29,7 +29,8 @@ MP = ("attention.output.dense", "output.dense")  # out_proj, fc2 (update-branch 
 
 
 def q_pt(t, s):
-    return torch.clamp(torch.round(t / s), -QMAX, QMAX) * s
+    tf, sf = t.float(), (s.float() if torch.is_tensor(s) else s)
+    return (torch.clamp(torch.round(tf / sf), -QMAX, QMAX) * sf).to(t.dtype)
 
 
 class FlexQuantLinear(nn.Module):
@@ -61,7 +62,7 @@ class FlexQuantLinear(nn.Module):
             s = (x.detach().abs().amax(-1, keepdim=True) / QMAX).clamp_min(1e-8)
             return F.linear(q_pt(x, s), self.wq, self.bias)
         if self.calibrating:
-            self.act_scale = torch.maximum(self.act_scale, x.detach().abs().max())
+            self.act_scale = torch.maximum(self.act_scale, x.detach().abs().max().float())
             return F.linear(x, self._orig_w, self.bias)
         xq = q_pt(x, (self.act_scale / QMAX).clamp_min(1e-8))
         return F.linear(xq, self.wq, self.bias)
