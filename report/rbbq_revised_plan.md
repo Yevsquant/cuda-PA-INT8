@@ -4,6 +4,13 @@ Supersedes the actuator of `rbbq_proposal.md` while preserving its motivation,
 instrumentation, W8A8 scope, architecture comparison, and success criteria. Grounded in
 Phases 0–11 (`rbbq_capstone.md`) and the five directions in `pontential_sol.md`.
 
+**STATUS (complete):** all five solutions executed as Phases 12–16 — see
+`report/phase1{2,3,4,5,6}_report.md`. Headline outcomes: RBBQ-C consolidated with the
+honest residual→`D` linkage (12); legal folds add value on top of selective (13);
+MSE-static rescue recovers ~89% of the C1 gap but not all (14); ~0.6% token escalation to
+FP16 recovers most of it (15); **FP8 all-static is near-lossless and selectivity is an
+INT8-only need** (16). Remaining items are hardware-blocked (A100 confirm, ViT/ImageNet).
+
 ## Revised claim (the thesis)
 
 > RBBQ's original branch-**rebalancing** actuator is refuted (Phases 2–4), but its
