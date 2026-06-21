@@ -1,0 +1,27 @@
+{
+  "fp": 9.803,
+  "n_total": 196,
+  "n_dyn_rbbqc": 33,
+  "thr": 5.0,
+  "linkage": {
+    "attn_in": {
+      "out_dominance": 91.4,
+      "D": 2.18
+    },
+    "attn_out": {
+      "out_dominance": 405.4,
+      "D": 2.33
+    },
+    "mlp_in": {
+      "out_dominance": 29.6,
+      "D": 2.72
+    },
+    "mlp_out": {
+      "out_dominance": 117.9,
+      "D": 7.69
+    }
+  },
+  "plain": 110.378,
+  "rbbqc": 10.494,
+  "all_dynamic": 10.022
+}
