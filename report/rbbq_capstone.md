@@ -96,8 +96,11 @@ apply **per-token dynamic** only where activation outliers demand it.
 
 ## 6. Limitations / what is not yet established
 
-- **Generality:** shown on BERT-base + Qwen2.5-1.5B only. ViT-B (vision) and larger LLMs
-  (7–13B) untested — the next experiment.
+- **Generality:** established on **three families** — BERT-base (post-norm encoder, GELU),
+  Qwen2.5-1.5B (pre-norm decoder, SwiGLU), and **Mistral-7B** (different family, 7B;
+  Phase 11): damage localizes to the MLP down-projection, activation-side, fixed by
+  per-token-dynamic / `D` in every case. Only **ViT-B (vision)** remains untested,
+  blocked on ImageNet (gated/uncached).
 - **Target-hardware latency:** the int8 latency win is *argued* for A100 but measured only
   on H200 (where int8 loses). Needs an A100 re-benchmark (CLAUDE.md reserves A100 for final
   runs); the Triton int8 kernel is portable for this.
@@ -106,8 +109,8 @@ apply **per-token dynamic** only where activation outliers demand it.
 
 ## 7. Open work (priority order)
 
-1. **Generality experiment (next session):** ViT-B (ImageNet) and a 7B LLM — does the
-   down-projection concentration and the `D` rule transfer across vision and scale?
+1. **ViT-B (vision)** — the one remaining architecture class; blocked on ImageNet. (7B-LLM
+   generality is **done**: Mistral-7B, Phase 11.)
 2. A100 int8 GEMM re-benchmark (target HW) to confirm the latency win.
 3. Full accuracy matrix vs SmoothQuant / Outlier Suppression / per-tensor / all-dynamic.
 4. An **FP8** selective-granularity path (Hopper) parallel to int8 (A100).
@@ -127,6 +130,7 @@ apply **per-token dynamic** only where activation outliers demand it.
 | 8 E' rule | `phase8_report.md` | `rbbq/phase8_eprime.py` |
 | 9 fused kernel | `phase9_report.md` | `rbbq/phase9_fused_w8a8.py`, `phase9_bench.py` |
 | 10 int8/fp8/bf16 | `phase10_report.md` | `rbbq/phase10_int8_gemm.py` |
+| 11 generality (Mistral-7B) | `phase11_report.md` | `rbbq/phase11_generality.py` |
 
 Env: conda `specdec` (torch 2.10+cu128, H200); datasets via `nyu-mll/glue` /
 `Salesforce/wikitext`; `HF_HUB_OFFLINE=1` to avoid hub 504s.
